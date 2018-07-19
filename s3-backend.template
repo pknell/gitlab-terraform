@@ -1,0 +1,137 @@
+Parameters:
+  LockTableName:
+    Description: Name of the DynamoDB table to store state locks.
+    Type: String
+    Default: TerraformStateLock
+  OtherAwsAccountNumber:
+    Description: Account number of the account (where Terraform runs) to allow access.
+    Type: String
+  OtherAwsAccountRoleName:
+    Description: The name of the role, in the other AWS account, that will be allowed access.
+    Type: String
+  ExternalId:
+    Description: 'Values of the ExternalId parameter used during sts:AssumeRole'
+    Type: String
+AWSTemplateFormatVersion: 2010-09-09
+Resources:
+  TerraformStateBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      AccessControl: Private
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Purpose
+          Value: TerraformState
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: 92b2ead2-cb68-4345-a7b0-057955763d51
+  TerraformLockTable:
+    Type: 'AWS::DynamoDB::Table'
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: LockID
+          AttributeType: S
+      KeySchema:
+        - AttributeName: LockID
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      TableName: !Ref LockTableName
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: 360f9fc9-e778-401f-a4cf-caefe46666bc
+  TerraformRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Join 
+                - ''
+                - - 'arn:aws:iam::'
+                  - !Ref OtherAwsAccountNumber
+                  - ':role/'
+                  - !Ref OtherAwsAccountRoleName
+            Action:
+              - 'sts:AssumeRole'
+            Condition:
+              StringEquals:
+                'sts:ExternalId': !Ref ExternalId
+      Path: /
+      Policies:
+        - PolicyName: TerraformPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:PutObject'
+                  - 's3:GetObject'
+                Resource: !Join
+                  - '/'
+                  - - !GetAtt 
+                      - TerraformStateBucket
+                      - Arn
+                    - 'terraform-state'
+              - Effect: Allow
+                Action:
+                  - 's3:ListBucket'
+                Resource: !GetAtt
+                  - TerraformStateBucket
+                  - Arn
+              - Effect: Allow
+                Action:
+                  - 'dynamodb:GetItem'
+                  - 'dynamodb:PutItem'
+                  - 'dynamodb:DeleteItem'
+                Resource: !GetAtt 
+                  - TerraformLockTable
+                  - Arn
+              - Effect: Allow
+                Action:
+                  - 'ec2:*'
+                Resource: '*'
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: a3f3650b-b757-4ce4-94a0-275e35bc36cf
+Outputs:
+  StackName:
+    Value: !Ref 'AWS::StackName'
+  TerraformStateBucketName:
+    Value: !Ref TerraformStateBucket
+  TerraformRoleArn:
+    Value: !Ref TerraformRole
+Metadata:
+  'AWS::CloudFormation::Designer':
+    360f9fc9-e778-401f-a4cf-caefe46666bc:
+      size:
+        width: 60
+        height: 60
+      position:
+        x: 60
+        'y': 90
+      z: 1
+      embeds: []
+    92b2ead2-cb68-4345-a7b0-057955763d51:
+      size:
+        width: 60
+        height: 60
+      position:
+        x: 180
+        'y': 90
+      z: 1
+      embeds: []
+    a3f3650b-b757-4ce4-94a0-275e35bc36cf:
+      size:
+        width: 60
+        height: 60
+      position:
+        x: 60
+        'y': 190
+      z: 0
+      embeds: []
+

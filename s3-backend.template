@@ -3,11 +3,10 @@ Parameters:
     Description: Name of the DynamoDB table to store state locks.
     Type: String
     Default: TerraformStateLock
-  OtherAwsAccountNumber:
-    Description: Account number of the account (where Terraform runs) to allow access.
-    Type: String
-  OtherAwsAccountRoleName:
-    Description: The name of the role, in the other AWS account, that will be allowed access.
+  RunnerIamRoleArn:
+    Description: >-
+      The ARN of the GitLab Runner's role, used to allow it permission to assume
+      the TerraformRole.
     Type: String
   ExternalId:
     Description: 'Values of the ExternalId parameter used during sts:AssumeRole'
@@ -45,17 +44,41 @@ Resources:
   TerraformRole:
     Type: 'AWS::IAM::Role'
     Properties:
+      RoleName: TerraformRole
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
           - Effect: Allow
             Principal:
-              AWS: !Join 
-                - ''
-                - - 'arn:aws:iam::'
-                  - !Ref OtherAwsAccountNumber
-                  - ':role/'
-                  - !Ref OtherAwsAccountRoleName
+              AWS: !Ref RunnerIamRoleArn
+            Action:
+              - 'sts:AssumeRole'
+            Condition:
+              StringEquals:
+                'sts:ExternalId': !Ref ExternalId
+      Path: /
+      Policies:
+        - PolicyName: TerraformPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'ec2:*'
+                Resource: '*'
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: a3f3650b-b757-4ce4-94a0-275e35bc36cf
+  S3BackendRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: S3BackendRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Ref RunnerIamRoleArn
             Action:
               - 'sts:AssumeRole'
             Condition:
@@ -74,9 +97,9 @@ Resources:
                 Resource: !Join
                   - '/'
                   - - !GetAtt 
-                      - TerraformStateBucket
-                      - Arn
-                    - 'terraform-state'
+                        - TerraformStateBucket
+                        - Arn
+                    - '*'
               - Effect: Allow
                 Action:
                   - 's3:ListBucket'
@@ -91,20 +114,14 @@ Resources:
                 Resource: !GetAtt 
                   - TerraformLockTable
                   - Arn
-              - Effect: Allow
-                Action:
-                  - 'ec2:*'
-                Resource: '*'
     Metadata:
       'AWS::CloudFormation::Designer':
-        id: a3f3650b-b757-4ce4-94a0-275e35bc36cf
+        id: e56c4ae0-bc61-4308-9314-e48bc1d2abf4
 Outputs:
   StackName:
     Value: !Ref 'AWS::StackName'
   TerraformStateBucketName:
     Value: !Ref TerraformStateBucket
-  TerraformRoleArn:
-    Value: !Ref TerraformRole
 Metadata:
   'AWS::CloudFormation::Designer':
     360f9fc9-e778-401f-a4cf-caefe46666bc:
@@ -131,6 +148,15 @@ Metadata:
         height: 60
       position:
         x: 60
+        'y': 190
+      z: 0
+      embeds: []
+    e56c4ae0-bc61-4308-9314-e48bc1d2abf4:
+      size:
+        width: 60
+        height: 60
+      position:
+        x: 180
         'y': 190
       z: 0
       embeds: []

@@ -232,13 +232,48 @@ Click "Next", and then enter the missing parameter values:
 
 Click "Next" twice (to use the default options). Then, click the checkbox to allow IAM resource creation, and click "Create".
 
-Wait for the stack creation to complete. You now have everything set up for the S3 Backend. Let's take a look at what's in the stack:
+Wait for the stack creation to complete. You now have everything set up for the S3 Backend.
 
-![CloudFormation S3 Backend](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/cf-s3-backend.png)
+If you want to set up both an example "Staging" account and an example "Production" account, then repeat the creation of the S3 Backend stack in your third account.
 
 ## Understanding the S3 Backend Stack
 
-TODO
+We set up the S3 Backend into the "Staging" account, and perhaps also the "Production" account, by using the "s3-backend.template" file.
+If you examine this file, you'll see the following resources:
+* TerraformStateBucket - The S3 bucket for holding Terraform State. Versioning is enabled, per Terraform's recommendation.
+* TerraformLockTable - The DynamoDB table that's used as a locking mechanism.
+* TerraformRole - Permissions needed for whatever resources the Terraform configuration will manage. For our example, it's just "ec2:*". However, for your project you would need to adjust this for whatever AWS services your project requires (e.g., VPN, RDS, SQS, etc...)
+* S3BackendRole - Permissions needed for Terraform to access and update it's state stored in S3. This includes both access to the bucket and to the lock table.
+
+These are depicted in the CloudFormation stack diagram:
+
+![CloudFormation S3 Backend](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/cf-s3-backend.png)
+
+The permissions needed for the S3BackendRole come from [Terraform's S3 Backend documentation](https://www.terraform.io/docs/backends/types/s3.html).
+
+Both roles (TerraformRole, and S3BackendRole) are locked-down so they
+can only be assumed by the role used by Terraform within the GitLab Runner.
+This is done within the AssumeRolePolicyDocument, by limiting the Principal
+to the Role ARN that was provided as a stack parameter:
+
+```
+  TerraformRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: TerraformRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Ref RunnerIamRoleArn
+            Action:
+              - 'sts:AssumeRole'
+            Condition:
+              StringEquals:
+                'sts:ExternalId': !Ref ExternalId
+    etc...
+```
 
 ## Create the Terraform and GitLab Configuration
 

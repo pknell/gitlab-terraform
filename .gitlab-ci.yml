@@ -1,0 +1,32 @@
+cache:
+  paths:
+    - .terraform
+ 
+stages:
+  - deploy
+
+deploy_staging:
+  stage: deploy
+  tags:
+    - terraform
+  script:
+    - terraform init -backend-config="bucket=${TERRAFORM_S3_BUCKET}" -backend-config="region=${TF_VAR_AWS_REGION}" -backend-config="role_arn=${S3_BACKEND_ROLE_ARN}" -backend-config="external_id=${TF_VAR_ASSUME_ROLE_EXTERNAL_ID}" -backend-config="session_name=TerraformBackend" src/main/terraform
+    - terraform apply -auto-approve -input=false src/main/terraform
+  environment:
+    name: staging
+    url: https://staging.example.com
+    on_stop: stop_staging
+  only:
+    variables:
+      - $DEPLOY_TO == "staging"
+
+stop_staging:
+  stage: deploy
+  tags:
+    - terraform
+  script:
+    - terraform destroy -input=false -auto-approve src/main/terraform
+  when: manual
+  environment:
+    name: staging
+    action: stop

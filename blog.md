@@ -277,11 +277,60 @@ to the Role ARN that was provided as a stack parameter:
 
 ## Create the Terraform and GitLab Configuration
 
-Now that you have the GitLab Runner (with Terraform installed) and the S3 Backend, it's time to create some infrastructure! For this example, we'll just spin up an EC2 instance, but for your project it can be any AWS resources that Terraform supports.
+Now that you have the GitLab Runner (with Terraform installed) and the S3 Backend(s),
+ it's time to configure your GitLab Pipeline and add the Terraform configuration.
 
-TODO--present the main.tf
+For this example, we'll just spin up an EC2 instance, but for your project it can be any AWS resources that Terraform supports and that your "TerraformRole" allows.
 
-TODO--present the .gitlab-ci.yaml
+To set up the GitLab Pipeline, merely add (and commit) the ".gitlab-ci.yaml"
+file to your git repository:
+
+```
+stages:
+  - deploy
+
+deploy_staging:
+  stage: deploy
+  tags:
+    - terraform
+  script:
+    - terraform init -backend-config="bucket=${TERRAFORM_S3_BUCKET}"
+      -backend-config="region=${TF_VAR_AWS_REGION}" -backend-config="role_arn=${S3_BACKEND_ROLE_ARN}"
+      -backend-config="external_id=${TF_VAR_ASSUME_ROLE_EXTERNAL_ID}"
+      -backend-config="session_name=TerraformBackend" terraform-configuration
+    - terraform apply -auto-approve -input=false terraform-configuration
+```
+
+Here we declare a "deploy" stage. You'll probably add other stages, such as "build" and "test", but we only need one stage for merely deploying the infrastructure.
+
+The job called "deploy_staging" will be used for deploying to the staging environment. The "terraform" tag is used to specify that we want to use
+the "Shell Runner" (and not our "Docker Runner") so that the Terraform binary will be available. Note: Our other option would be to use a Docker image
+that contains the Terraform binary.
+
+The script runs the "terraform init" command to make sure the plugins are downloaded and the S3 Backend configured.
+It then runs "terraform apply" to actually perform the updates, meaning it will create/update any resources that are
+not in sync relative to the current state (in the S3 bucket). Both commands specify "terraform-configuration" as
+the directory, so we'll need to create that subdirectory and use it for the "main.tf" file.  Refer to these files
+in my github project and set them up similarly in yours.
+
+Take a look at [terraform-configuration/main.tf](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/terraform-configuration/main.tf).
+You'll see a few variables, the configuration of the AWS provider and S3 backend, and lastly the EC2 instance.
+The variables seen here, and those seen in the ".gitlab-ci.yaml" file, can be
+specified in various ways (refer to [Priority of Variables](https://docs.gitlab.com/ee/ci/variables/)), but I usually specify them in project settings ("Settings --> CI/CD --> Variables"):
+[GitLab Variables](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/gitlab-variables.png)
+
+The AWS provider needs to be configured with the Role ARN of what was called "TerraformRole" in the S3 Backend stack,
+whereas the S3 Backend (configured via arguments to the "terraform init" command) needs to be given the Role ARN
+of what was called "S3BackendRole".
+
+The EC2 instance (at the end of main.tf) is just an example of what you might deploy
+for your project. In a real project, however, you'll probably have more than just this
+single resource--so you should separate it into it's own file, separate from the
+provider and backend configuration.  For example, you might have three files: vars.tf, provider.tf, and app.tf.
+Ultimately your structure of Terraform configuration files will depend on your project. If it's a
+large project, you could leverage [Terraform Modules](https://www.terraform.io/docs/modules/index.html).
+
+
 
 ## Run the Pipeline
 

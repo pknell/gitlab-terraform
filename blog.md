@@ -37,8 +37,8 @@ In the GitLab account, create a new blank project:
 This will be the project for the CI/CD Pipeline.
 Initially, you can create it with just a README.md file, but later we'll add a ".gitlab-ci.yaml" and a "main.tf" file.
 
-Go to the project's CI/CD settings, and click the "Disable Shared Runners" button because we'll be using our own runner:
-![Disable Shared Runners](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/disable-shared-runners.png)
+Go to the project's settings, "Settings --> CD/CD --> Runners", click the "Disable Shared Runners" button (because we'll be using our own runner), and copy the registration token (for use later):
+![Disable Shared Runners and Copy Runner Token](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/runner-token.png)
 
 In each AWS account, if you're following the recommended practice of using an IAM user (rather than the root account credentials), make
 sure your user has console access and sufficient permissions to create the CloudFormation stack. The DevOps account's user
@@ -58,8 +58,7 @@ Specify the template by uploading the gitlab-runner.template file:
 Click "Next", and then enter each missing parameter:
 * Stack name: the stack name, such as "GitLab-Runner"
 * GitLabApiToken: For now, leave this blank. It's used for clean-up of the runner's registration, which will be discussed later.
-* GitLabRunnerToken: The token for your GitLab project. Get this from the "Runners" section of your GitLab project's "Settings --> CI / CD":
-![Runner Token](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/runner-token.png)
+* GitLabRunnerToken: The token for your GitLab project. Get this from the "Runners" section of your GitLab project's "Settings --> CI / CD --> Runners"
 * KeyName: Select the Key Pair that you earlier created. If the drop-down is empty, then you need to create a key pair in the current region.
 * Subnet1ID, Subnet2ID, Subnet3ID, and VpcId: Select the VPC that you'd like to use, as well as the subnet for each Availability Zone where the GitLab Runner could exist. You'll want to use a private VPC for a real project, but for learning purposes you can use your account's Default VPC. If the region you're using doesn't have at least 3 availability zones, then you'll need to tweak the template to remove the usage of Subnet3ID--otherwise, just switch to a region that has 3 AZs.
 

@@ -28,7 +28,7 @@ stop_staging:
   tags:
     - terraform
   script:
-    - terraform destroy -input=false -auto-approve src/main/terraform
+    - terraform destroy -input=false -auto-approve terraform-configuration
   when: manual
   environment:
     name: staging

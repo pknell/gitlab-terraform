@@ -86,7 +86,7 @@ Resources:
                 'sts:ExternalId': !Ref ExternalId
       Path: /
       Policies:
-        - PolicyName: TerraformPolicy
+        - PolicyName: S3BackendPolicy
           PolicyDocument:
             Version: 2012-10-17
             Statement:
@@ -120,7 +120,11 @@ Resources:
 Outputs:
   StackName:
     Value: !Ref 'AWS::StackName'
-  TerraformStateBucketName:
+  AwsRegion:
+    Value: !Ref "AWS::Region"
+  AwsAccountId:
+    Value: !Ref "AWS::AccountId"
+  TerraformS3BucketName:
     Value: !Ref TerraformStateBucket
 Metadata:
   'AWS::CloudFormation::Designer':

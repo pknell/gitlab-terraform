@@ -2,33 +2,45 @@
 *© 2018 Paul Knell, NVISIA LLC*
 
 [Terraform](https://www.terraform.io) is a useful tool for scripting the deployment of resources into
-Amazon's Cloud (AWS).  Usually one begins using Terrform at the local command
+Amazon's Cloud (AWS).  When you start using Terraform, you typically begin at the local command
 line--by writing configuration files and then running them with "terraform apply"
-commands. It doesn't take long, though, before one realizes that the local
+commands.  It doesn't take long, though, before you realize that just using the local
 backend (the "terraform.tfstate" file) isn't enough for collaborative projects
-where deployment pipelines might run concurrently, therefore the [S3 Backend](https://www.terraform.io/docs/backends/types/s3.html)
+where deployment pipelines can run concurrently. Therefore, the [S3 Backend](https://www.terraform.io/docs/backends/types/s3.html)
 should be used. The use of S3 to store the Terraform state is simple when there's
 just one environment, but when you need to support multiple (e.g., test, staging,
 production) there's a bit more to it... you can either:
-1. Use a single S3 Bucket with different folders for the various environments, using [Terraform's workspace feature](https://www.terraform.io/guides/running-terraform-in-automation.html#multi-environment-deployment).
-1. Or, you could use a separate S3 Bucket for each environment.
+1. Use a single S3 Bucket with different folders for the various environments by using [Terraform's workspace feature](https://www.terraform.io/guides/running-terraform-in-automation.html#multi-environment-deployment).
+1. Or, use a separate S3 Bucket for each environment.
 
 We like to use different AWS accounts for each environment, particularly because it isolates them and helps distinguish costs on the monthy bill.
 For this article, we'll use the second approach--each account (i.e., each environment) gets it's own "Terraform State" S3 Bucket.
 
 For the CI/CD server, however, there's only one for all environments--to keep costs down.
-This blog works through the creation of this kind of DevOps architecture (as depicted below), and provides a couple CloudFormation templates to make implementation easier.
+This blog works through the creation of this kind of DevOps architecture (as depicted below),
+and provides a couple CloudFormation templates to make implementation easier.
+
+If you work through this entire article, you'll end up with a working example
+pipeline that deploys an EC2 instance into multiple environments, as
+depicted below:
 
 ![Figure 1](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/figure1.png)
 
-A few things to note about the above diagram:
-* The GitLab Server can either be self-managed by deploying your own instance into the DevOps Account (right next to the GitLab Runner), or the GitLab Runner can be configured to point at "gitlab.com". It's more leg-work to run your own, but there are advantages.
-* The updates that Terraform performs against each environment can be either: automatic, periodically scheduled, or push-button (i.e., manual review/approval)--it all depends on how you configure the GitLab Pipeline.
+A few notable items about the above diagram:
+* The GitLab Server can either be self-managed by deploying your own instance
+into the DevOps Account (right next to the GitLab Runner), or the GitLab Runner
+can be configured to point at "gitlab.com". It's more leg-work to run your own,
+but there are advantages.  For this article, we'll simply use gitlab.com
+* The updates that Terraform performs against each environment can be either: automatic (upon code commit),
+periodically scheduled, or push-button (i.e., manual review/approval)--it all
+depends on how you configure the GitLab Pipeline.
 * Only "Staging" and "Production" are depicted, but it's easy to add more environments.
 
 ## Getting Started
 
-You're going to need a GitLab account, and at least two AWS accounts (or three if you want to set up multiple environments, such as "staging" and "production").
+You're going to need a GitLab account, and at least two AWS accounts (or three if you want to set up both "staging" and "production").
+
+### Create New GitLab Project
 
 In the GitLab account, create a new blank project:
 
@@ -40,10 +52,21 @@ Initially, you can create it with just a README.md file, but later we'll add a "
 Go to the project's settings, "Settings --> CD/CD --> Runners", click the "Disable Shared Runners" button (because we'll be using our own runner), and copy the registration token (for use later):
 ![Disable Shared Runners and Copy Runner Token](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/runner-token.png)
 
-In each AWS account, if you're following the recommended practice of using an IAM user (rather than the root account credentials), make
-sure your user has console access and sufficient permissions to create the CloudFormation stack. The DevOps account's user
-will need administrative access to: IAM, Lambda, and EC2. The "Staging" and "Production" account's user will need
-administrative access to: IAM, S3, DynamoDB, and EC2.
+### Create Each AWS Account and IAM User
+
+You'll need 2 or 3 AWS accounts. You can [create them](https://aws.amazon.com/free), or use existing ones.
+
+In each AWS account, if you're following [the recommended practice of using an IAM user](https://docs.aws.amazon.com/IAM/latest/UserGuide/getting-started_create-admin-group.html)
+(rather than the root account credentials), make
+sure your user has console access and sufficient permissions:
+* For the DevOps account: administrative access to IAM, Lambda, and EC2
+* For the Staging and Production accounts: administrative access to IAM, S3, DynamoDB
+
+**Disclaimer: You're responsible for AWS costs in your accounts**--but I
+ have designed this article to stay within the "Free Tier" because it
+ only creates one t2.micro EC2 instance in each account. Please remember
+ to clean-up when you're done by deleting the CloudFormation stacks and terminating
+ EC2 instance(s) in each account.
 
 ## Deploy the GitLab Runner
 
@@ -286,6 +309,10 @@ To set up the GitLab Pipeline, merely add (and commit) the ".gitlab-ci.yaml"
 file to your git repository:
 
 ```
+cache:
+  paths:
+    - .terraform
+
 stages:
   - deploy
 
@@ -295,13 +322,16 @@ deploy_staging:
     - terraform
   script:
     - terraform init -backend-config="bucket=${TERRAFORM_S3_BUCKET}"
-      -backend-config="region=${TF_VAR_AWS_REGION}" -backend-config="role_arn=${S3_BACKEND_ROLE_ARN}"
+      -backend-config="region=${TF_VAR_AWS_REGION}"
+      -backend-config="role_arn=arn:aws:iam::${TF_VAR_DEPLOY_INTO_ACCOUNT_ID}:role/S3BackendRole"
       -backend-config="external_id=${TF_VAR_ASSUME_ROLE_EXTERNAL_ID}"
       -backend-config="session_name=TerraformBackend" terraform-configuration
     - terraform apply -auto-approve -input=false terraform-configuration
 ```
 
 Here we declare a "deploy" stage. You'll probably add other stages, such as "build" and "test", but we only need one stage for merely deploying the infrastructure.
+
+The "cache" section is being used to keep files (such as downloaded plugins) around between job executions.
 
 The job called "deploy_staging" will be used for deploying to the staging environment. The "terraform" tag is used to specify that we want to use
 the "Shell Runner" (and not our "Docker Runner") so that the Terraform binary will be available. Note: Our other option would be to use a Docker image
@@ -317,7 +347,17 @@ Take a look at [terraform-configuration/main.tf](https://raw.githubusercontent.c
 You'll see a few variables, the configuration of the AWS provider and S3 backend, and lastly the EC2 instance.
 The variables seen here, and those seen in the ".gitlab-ci.yaml" file, can be
 specified in various ways (refer to [Priority of Variables](https://docs.gitlab.com/ee/ci/variables/)), but I usually specify them in project settings ("Settings --> CI/CD --> Variables"):
-[GitLab Variables](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/gitlab-variables.png)
+![GitLab Variables](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/gitlab-variables.png)
+
+Before your pipeline will work successfully, you'll need to configure the variables as depicted, using the values:
+* TF_VAR_DEPLOY_INTO_ACCOUNT_ID - The ID of the AWS Account to deploy resources into.
+* TERRAFORM_S3_BUCKET - The name of the S3 bucket
+* TF_VAR_ASSUME_ROLE_EXTERNAL_ID - The External ID that you used
+* TF_VAR_AWS_REGION - The name of the AWS region (e.g., us-west-2)
+
+Notice that some variables begin with the prefix "TF_VAR_", whereas others do not.  Those that begin with "TF_VAR_" will
+be exposed during evaluation of the terraform configuration files, as [documented here](https://www.terraform.io/docs/configuration/variables.html#environment-variables).
+The variables that are only used in .gitlab-ci.yaml (such as those for the S3 Backend configuration) do not need to begin with "TF_VAR_".
 
 The AWS provider needs to be configured with the Role ARN of what was called "TerraformRole" in the S3 Backend stack,
 whereas the S3 Backend (configured via arguments to the "terraform init" command) needs to be given the Role ARN

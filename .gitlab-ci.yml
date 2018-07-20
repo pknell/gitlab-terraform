@@ -10,8 +10,11 @@ deploy_staging:
   tags:
     - terraform
   script:
-    - terraform init -backend-config="bucket=${TERRAFORM_S3_BUCKET}" -backend-config="region=${TF_VAR_AWS_REGION}" -backend-config="role_arn=${S3_BACKEND_ROLE_ARN}" -backend-config="external_id=${TF_VAR_ASSUME_ROLE_EXTERNAL_ID}" -backend-config="session_name=TerraformBackend" src/main/terraform
-    - terraform apply -auto-approve -input=false src/main/terraform
+    - terraform init -backend-config="bucket=${TERRAFORM_S3_BUCKET}"
+      -backend-config="region=${TF_VAR_AWS_REGION}" -backend-config="role_arn=arn:aws:iam::${TF_VAR_DEPLOY_INTO_ACCOUNT_ID}:role/TerraformRole"
+      -backend-config="external_id=${TF_VAR_ASSUME_ROLE_EXTERNAL_ID}"
+      -backend-config="session_name=TerraformBackend" terraform-configuration
+    - terraform apply -auto-approve -input=false terraform-configuration
   environment:
     name: staging
     url: https://staging.example.com

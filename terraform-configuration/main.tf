@@ -1,4 +1,4 @@
-variable "ASSUME_ROLE_ARN" {
+variable "DEPLOY_INTO_ACCOUNT_ID" {
     type = "string"
 }
 
@@ -34,7 +34,7 @@ provider "aws" {
   region     = "${var.AWS_REGION}"
   version    = "~> 1.26"
   assume_role {
-    role_arn     = "${var.ASSUME_ROLE_ARN}"
+    role_arn     = "arn:aws:iam::${var.DEPLOY_INTO_ACCOUNT_ID}:role/TerraformRole"
     session_name = "Terraform"
     external_id  = "${var.ASSUME_ROLE_EXTERNAL_ID}"
   }

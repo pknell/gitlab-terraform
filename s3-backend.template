@@ -3,10 +3,10 @@ Parameters:
     Description: Name of the DynamoDB table to store state locks.
     Type: String
     Default: TerraformStateLock
-  RunnerIamRoleArn:
+  GitlabRunnerAccountNumber:
     Description: >-
-      The ARN of the GitLab Runner's role, used to allow it permission to assume
-      the TerraformRole.
+      The account number of the Gitlab Runner's account (the DevOps account).
+      This is used to allow the Gitlab Runner to assume the TerraformRole.
     Type: String
   ExternalId:
     Description: 'Values of the ExternalId parameter used during sts:AssumeRole'
@@ -50,7 +50,7 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              AWS: !Ref RunnerIamRoleArn
+              AWS: !Join [ '', [ 'arn:aws:iam::', !Ref GitlabRunnerAccountNumber, ':role/GitlabRunnerRole' ] ]
             Action:
               - 'sts:AssumeRole'
             Condition:
@@ -78,7 +78,7 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              AWS: !Ref RunnerIamRoleArn
+              AWS: !Join [ '', [ 'arn:aws:iam::', !Ref GitlabRunnerAccountNumber, ':role/GitlabRunnerRole' ] ]
             Action:
               - 'sts:AssumeRole'
             Condition:

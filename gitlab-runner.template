@@ -8,7 +8,7 @@ Parameters:
   GitLabServer:
     Description: Address of GitLab Web Server application
     Type: String
-    Default: 'https://www.gitlab.com'
+    Default: 'https://gitlab.com'
   GitLabRunnerToken:
     Description: >-
       Registration token for GitLab Runner. Registration token must contain
@@ -111,6 +111,43 @@ Mappings:
     sa-east-1:
       AMI: ami-10186f7c
 Resources:
+  RunnerIamRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: GitlabRunnerRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: GitLabRunnerPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'sts:AssumeRole'
+                Resource: 
+                  - 'arn:aws:iam::*:role/TerraformRole'
+                  - 'arn:aws:iam::*:role/S3BackendRole'
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: 294bb1e8-9c8f-41eb-9c34-e37d348993a0
+  RunnerInstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      InstanceProfileName: GitlabRunnerProfile
+      Roles:
+        - !Ref RunnerIamRole
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: 8431b43e-a91e-4a42-a3f2-3e19e8408683
   RunnerAutoScalingGroup:
     Type: 'AWS::AutoScaling::AutoScalingGroup'
     Properties:
@@ -122,7 +159,7 @@ Resources:
       MinSize: !Ref NumInstances
       MaxSize: !Ref NumInstances
       Cooldown: '300'
-      NotificationConfigurations: !If 
+      NotificationConfigurations: !If
         - HasGitLabApiToken
         - - NotificationTypes:
               - 'autoscaling:EC2_INSTANCE_TERMINATE'
@@ -140,28 +177,6 @@ Resources:
     Metadata:
       'AWS::CloudFormation::Designer':
         id: 43142532-0cf7-41bc-8c0f-891d886aee8d
-  ScaleDownAtNight:
-    Type: 'AWS::AutoScaling::ScheduledAction'
-    Properties:
-      AutoScalingGroupName: !Ref RunnerAutoScalingGroup
-      DesiredCapacity: 0
-      MaxSize: 0
-      MinSize: 0
-      Recurrence: 0 2 * * *
-    Metadata:
-      'AWS::CloudFormation::Designer':
-        id: d16f00fe-10db-4d20-bc66-0664546b8f33
-  ScaleUpInMorning:
-    Type: 'AWS::AutoScaling::ScheduledAction'
-    Properties:
-      AutoScalingGroupName: !Ref RunnerAutoScalingGroup
-      DesiredCapacity: 1
-      MaxSize: 1
-      MinSize: 1
-      Recurrence: 0 11 * * 1-5
-    Metadata:
-      'AWS::CloudFormation::Designer':
-        id: 928e53f3-5cb6-495e-a0af-6aea93a04c80
   RunnerLaunchConfiguration:
     Type: 'AWS::AutoScaling::LaunchConfiguration'
     Metadata:
@@ -189,23 +204,23 @@ Resources:
       'AWS::CloudFormation::Designer':
         id: aece8c9d-d225-49d9-a729-14ec4a45ceea
     Properties:
-      KeyName: !If 
+      KeyName: !If
         - HasKeyName
         - !Ref KeyName
         - !Ref 'AWS::NoValue'
-      ImageId: !FindInMap 
+      ImageId: !FindInMap
         - RegionMap
         - !Ref 'AWS::Region'
         - AMI
       InstanceType: !Ref InstanceType
-      IamInstanceProfile: !GetAtt 
+      IamInstanceProfile: !GetAtt
         - RunnerInstanceProfile
         - Arn
       BlockDeviceMappings:
         - DeviceName: /dev/sda1
           Ebs:
             VolumeSize: !Ref InstanceStorageSize
-      UserData: !Base64 
+      UserData: !Base64
         'Fn::Join':
           - |+
 
@@ -245,42 +260,28 @@ Resources:
             - !Sub >-
               cfn-signal -e $? --stack ${AWS::StackName} --resource
               RunnerAutoScalingGroup --region ${AWS::Region}
-  RunnerInstanceProfile:
-    Type: 'AWS::IAM::InstanceProfile'
+  ScaleDownAtNight:
+    Type: 'AWS::AutoScaling::ScheduledAction'
     Properties:
-      InstanceProfileName: GitlabRunnerProfile
-      Roles:
-        - !Ref RunnerIamRole
+      AutoScalingGroupName: !Ref RunnerAutoScalingGroup
+      DesiredCapacity: 0
+      MaxSize: 0
+      MinSize: 0
+      Recurrence: 0 22 * * *
     Metadata:
       'AWS::CloudFormation::Designer':
-        id: 8431b43e-a91e-4a42-a3f2-3e19e8408683
-  RunnerIamRole:
-    Type: 'AWS::IAM::Role'
+        id: d16f00fe-10db-4d20-bc66-0664546b8f33
+  ScaleUpInMorning:
+    Type: 'AWS::AutoScaling::ScheduledAction'
     Properties:
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service:
-                - ec2.amazonaws.com
-            Action:
-              - 'sts:AssumeRole'
-      Path: /
-      Policies:
-        - PolicyName: GitLabRunnerPolicy
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Effect: Allow
-                Action:
-                  - 'sts:AssumeRole'
-                Resource: 
-                  - 'arn:aws:iam::*:role/TerraformRole'
-                  - 'arn:aws:iam::*:role/S3BackendRole'
+      AutoScalingGroupName: !Ref RunnerAutoScalingGroup
+      DesiredCapacity: 1
+      MaxSize: 1
+      MinSize: 1
+      Recurrence: 0 14 * * 1-5
     Metadata:
       'AWS::CloudFormation::Designer':
-        id: 294bb1e8-9c8f-41eb-9c34-e37d348993a0
+        id: 928e53f3-5cb6-495e-a0af-6aea93a04c80
   RunnerLifecycleTopic:
     Type: 'AWS::SNS::Topic'
     Condition: HasGitLabApiToken
@@ -457,6 +458,13 @@ Resources:
     Metadata:
       'AWS::CloudFormation::Designer':
         id: 6eace77b-cc29-4fb7-b324-ae3e623e0df3
+Outputs:
+  StackName:
+    Value: !Ref 'AWS::StackName'
+  AwsRegion:
+    Value: !Ref "AWS::Region"
+  AwsAccountId:
+    Value: !Ref "AWS::AccountId"
 Metadata:
   'AWS::CloudFormation::Designer':
     aece8c9d-d225-49d9-a729-14ec4a45ceea:

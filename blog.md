@@ -18,7 +18,7 @@ For this article, we'll use the second approach--each account (i.e., each enviro
 
 For the CI/CD server, however, there's only one for all environments--to keep costs down.
 This blog works through the creation of this kind of DevOps architecture (as depicted below),
-and provides a couple CloudFormation templates to make implementation easier.
+and provides a couple CloudFormation templates to help automate the setup.
 
 If you work through this entire article, you'll end up with a working example
 pipeline that deploys an EC2 instance into multiple environments, as
@@ -47,7 +47,7 @@ In the GitLab account, create a new blank project:
 ![Create GitLab Project](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/create-gitlab-project.png)
 
 This will be the project for the CI/CD Pipeline.
-Initially, you can create it with just a README.md file, but later we'll add a ".gitlab-ci.yaml" and a "main.tf" file.
+Initially, you can create it with just a README.md file, but later we'll add a ".gitlab-ci.yml" and a "main.tf" file.
 
 Go to the project's settings, "Settings --> CD/CD --> Runners", click the "Disable Shared Runners" button (because we'll be using our own runner), and copy the registration token (for use later):
 ![Disable Shared Runners and Copy Runner Token](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/runner-token.png)
@@ -55,18 +55,24 @@ Go to the project's settings, "Settings --> CD/CD --> Runners", click the "Disab
 ### Create Each AWS Account and IAM User
 
 You'll need 2 or 3 AWS accounts. You can [create them](https://aws.amazon.com/free), or use existing ones.
+Throughout this article, I'll refer to the first account as "DevOps", the second as "Staging",
+and the third (if you're using three) as "Production".
 
 In each AWS account, if you're following [the recommended practice of using an IAM user](https://docs.aws.amazon.com/IAM/latest/UserGuide/getting-started_create-admin-group.html)
 (rather than the root account credentials), make
-sure your user has console access and sufficient permissions:
-* For the DevOps account: administrative access to IAM, Lambda, and EC2
-* For the Staging and Production accounts: administrative access to IAM, S3, DynamoDB
+sure your user has console access and sufficient permissions.
+If you use [the "Administrators" group](https://docs.aws.amazon.com/IAM/latest/UserGuide/getting-started_create-admin-group.html), that's the easiest way to get going.
+
+Otherwise, you can use the IAM console to create custom groups/policies:
+* For the DevOps account, you'll need administrative access to: IAM, CloudFormation, S3, SNS, Lambda, AutoScaling, and EC2
+* For the Staging and Production accounts, you'll need administrative access to: IAM, CloudFormation, S3, SNS, DynamoDB
 
 **Disclaimer: You're responsible for AWS costs in your accounts**--but I
  have designed this article to stay within the "Free Tier" because it
  only creates one t2.micro EC2 instance in each account. Please remember
  to clean-up when you're done by deleting the CloudFormation stacks and terminating
- EC2 instance(s) in each account.
+ EC2 instance(s) in each account. Therefore, it shouldn't cost much if the
+ accounts are otherwise unused.
 
 ## Deploy the GitLab Runner
 
@@ -82,8 +88,8 @@ Click "Next", and then enter each missing parameter:
 * Stack name: the stack name, such as "GitLab-Runner"
 * GitLabApiToken: For now, leave this blank. It's used for clean-up of the runner's registration, which will be discussed later.
 * GitLabRunnerToken: The token for your GitLab project. Get this from the "Runners" section of your GitLab project's "Settings --> CI / CD --> Runners"
-* KeyName: Select the Key Pair that you earlier created. If the drop-down is empty, then you need to create a key pair in the current region.
-* Subnet1ID, Subnet2ID, Subnet3ID, and VpcId: Select the VPC that you'd like to use, as well as the subnet for each Availability Zone where the GitLab Runner could exist. You'll want to use a private VPC for a real project, but for learning purposes you can use your account's Default VPC. If the region you're using doesn't have at least 3 availability zones, then you'll need to tweak the template to remove the usage of Subnet3ID--otherwise, just switch to a region that has 3 AZs.
+* KeyName: Select the Key Pair that you created earlier. If the drop-down is empty, then you need to create a key pair in the current region.
+* Subnet1ID, Subnet2ID, Subnet3ID, and VpcId: Select the VPC that you'd like to use, as well as the subnet for each Availability Zone where the GitLab Runner could exist. You'll want to use a private VPC for a real project, but for learning purposes you can use your account's Default VPC. If the region you're using doesn't have at least 3 availability zones, then you'll need to tweak the template to remove the usage of Subnet3ID--otherwise, just switch to a region that has 3 AZs. If you use the same region in all three accounts, it will be less confusing but it's not required.
 
 Click "Next" twice (to use the default options). Then, click the checkbox to allow IAM resource creation, and click "Create".
 
@@ -91,15 +97,15 @@ Wait a few minutes for the stack creation to complete. You can now view the EC2 
 
 ![GitLab Runner Instance](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/runner-ec2-instance.png)
 
-You can also see, in GitLab, that there's a couple registered runners:
+You can also see, in GitLab (under Settings --> CI/CD --> Runners), that there's a couple registered runners:
 
 ![Registered Runners](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/registered-runners.png)
 
 Next, select the stack in the CloudFormation console, and click the "Outputs" tab:
 
-TODO: ADD IMAGE of the OUTPUTs HERE
+![Runner Stack Outputs](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/runner-stack-outputs.png)
 
-Copy the ARN of the RunnerIamRole to your clipboard. You'll need it for the next section when we set up the S3 backend, because we'll explicitly give that role permission to access the other account.
+You'll need the Account ID from these outputs for the next section, when we set up the S3 backend, because we'll explicitly give the role in this account to access the other account's role.
 
 ## Understanding the GitLab Runner Stack
 
@@ -164,7 +170,7 @@ you'll see that we've installed docker, awscli, and terraform. This means that
 your GitLab Pipeline Jobs can use any of these when they use the shell executor.
 With the docker executor, you'd need an image that contains the tools. It's easy to create
 such an image, and it's a good idea, but it's an extra step. For this tutorial,
-we'll merely use the shell.  We'll have to make sure our job (in the .gitlab-ci.yaml file)
+we'll use the Shell Executor.  We'll have to make sure our job (in the .gitlab-ci.yaml file)
 specifies a tag, either "terraform" or "awscli", in order for the runner to know
 to use the shell runner--otherwise it'll use docker. This is because the shell
 runner has the argument "--tag-list terraform,awscli" whereas the docker runner does not.
@@ -182,7 +188,7 @@ Here's the code for these:
       DesiredCapacity: 0
       MaxSize: 0
       MinSize: 0
-      Recurrence: 0 2 * * *
+      Recurrence: 0 22 * * *
     Metadata:
       'AWS::CloudFormation::Designer':
         id: d16f00fe-10db-4d20-bc66-0664546b8f33
@@ -193,12 +199,12 @@ Here's the code for these:
       DesiredCapacity: 1
       MaxSize: 1
       MinSize: 1
-      Recurrence: 0 11 * * 1-5
+      Recurrence: 0 14 * * 1-5
 ```
 
 If you use the scheduled actions, please pay special attention to the
 next section, otherwise your GitLab project will accumulate a lot of
-absolete runners (because they'll get freshly registered each morning but
+obsolete runners (because they'll get freshly registered each morning but
 never unregistered).
 
 ## Unregistration of the Runner
@@ -217,8 +223,8 @@ by:
     * Please keep in mind that the KMS keypair is not free. At the time of writing this article, it
     costs $1 per month. Encrypting this token is important because GitLab does not currently have
     any way to limit the scope of access, and anyone who has access to the Lambda function will
-    be able to get the token. With use of KMS, you can separate who has access to view the Lambda
-    function versus who has access to use the key for decryption.
+    be able to get the token. When the token is KMS-encrypted, you can separately manage access
+    to view the Lambda function versus access to decrypt the token.
     * The following screenshot (from the Lambda AWS Console) shows the helper for setting up KMS.
     After creating the stack, you can navigate to the Lambda function, enable the "helpers" and then
     click the "Code" button. It will give you JavaScript code for decrypting, which you can use for
@@ -229,6 +235,7 @@ by:
 1. Update the CloudFormation stack, without changing the template, but just change the value of the GitLabApiToken parameter.
 
 The presence of GitLabApiToken will cause the stack to look at follows (notice the entire lower section of this diagram is for support of unregistering the runner):
+
 ![CloudFormation S3 Backend](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/cf-gitlab-runner-full.png)
 
 Here's how the unregistration works:
@@ -251,7 +258,7 @@ In another account, go to the CloudFormation console and create a stack from the
 Click "Next", and then enter the missing parameter values:
 * Stack name: the name of the stack, such as "Terraform-Backend"
 * ExternalId: any random value, such as a new GUID. This is an extra security measure, that [AWS documentation explains](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-user_externalid.html). It's arguably not needed for our usage since we own all accounts involved, however using it doesn't hurt. You'll need to use the same value when running Terraform (in the S3 Backend configuration).
-* RunnerIamRoleArn: The ARN of the runner's role (previously copied into your clipboard when you looked at Outputs of the GitLab Runner stack).
+* GitlabRunnerAccountNumber: The account ID of the DevOps account, which you can get from the Outputs of the gitlab-runner CloudFormation stack.
 
 Click "Next" twice (to use the default options). Then, click the checkbox to allow IAM resource creation, and click "Create".
 
@@ -261,14 +268,14 @@ If you want to set up both an example "Staging" account and an example "Producti
 
 ## Understanding the S3 Backend Stack
 
-We set up the S3 Backend into the "Staging" account, and perhaps also the "Production" account, by using the "s3-backend.template" file.
+We set up the S3 Backend into the "Staging" account, and perhaps also into the "Production" account, by using the "s3-backend.template" file.
 If you examine this file, you'll see the following resources:
 * TerraformStateBucket - The S3 bucket for holding Terraform State. Versioning is enabled, per Terraform's recommendation.
 * TerraformLockTable - The DynamoDB table that's used as a locking mechanism.
 * TerraformRole - Permissions needed for whatever resources the Terraform configuration will manage. For our example, it's just "ec2:*". However, for your project you would need to adjust this for whatever AWS services your project requires (e.g., VPN, RDS, SQS, etc...)
 * S3BackendRole - Permissions needed for Terraform to access and update it's state stored in S3. This includes both access to the bucket and to the lock table.
 
-These are depicted in the CloudFormation stack diagram:
+These resources are depicted in the following CloudFormation stack diagram:
 
 ![CloudFormation S3 Backend](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/cf-s3-backend.png)
 
@@ -277,7 +284,7 @@ The permissions needed for the S3BackendRole come from [Terraform's S3 Backend d
 Both roles (TerraformRole, and S3BackendRole) are locked-down so they
 can only be assumed by the role used by Terraform within the GitLab Runner.
 This is done within the AssumeRolePolicyDocument, by limiting the Principal
-to the Role ARN that was provided as a stack parameter:
+to the ARN of the GitlabRunnerRole (of the DevOps account):
 
 ```
   TerraformRole:
@@ -289,7 +296,7 @@ to the Role ARN that was provided as a stack parameter:
         Statement:
           - Effect: Allow
             Principal:
-              AWS: !Ref RunnerIamRoleArn
+              AWS: !Join [ '', [ 'arn:aws:iam::', !Ref GitlabRunnerAccountNumber, ':role/GitlabRunnerRole' ] ]
             Action:
               - 'sts:AssumeRole'
             Condition:
@@ -298,7 +305,7 @@ to the Role ARN that was provided as a stack parameter:
     etc...
 ```
 
-## Create the Terraform and GitLab Configuration
+## Create the GitLab Configuration for Staging Deployment
 
 Now that you have the GitLab Runner (with Terraform installed) and the S3 Backend(s),
  it's time to configure your GitLab Pipeline and add the Terraform configuration.
@@ -306,62 +313,184 @@ Now that you have the GitLab Runner (with Terraform installed) and the S3 Backen
 For this example, we'll just spin up an EC2 instance, but for your project it can be any AWS resources that Terraform supports and that your "TerraformRole" allows.
 
 To set up the GitLab Pipeline, merely add (and commit) the ".gitlab-ci.yaml"
-file to your git repository:
+file to your git repository. To start with, we'll create jobs for the "Staging" deployment:
 
 ```
 cache:
   paths:
-    - .terraform
+    - .terraform/plugins
 
 stages:
+  - plan
   - deploy
 
 deploy_staging:
   stage: deploy
   tags:
     - terraform
+  variables:
+    TF_VAR_DEPLOY_INTO_ACCOUNT_ID: ${STAGING_ACCOUNT_ID}
+    TF_VAR_ASSUME_ROLE_EXTERNAL_ID: ${STAGING_ASSUME_ROLE_EXTERNAL_ID}
+    TF_VAR_AWS_REGION: ${STAGING_AWS_REGION}
   script:
-    - terraform init -backend-config="bucket=${TERRAFORM_S3_BUCKET}"
-      -backend-config="region=${TF_VAR_AWS_REGION}"
-      -backend-config="role_arn=arn:aws:iam::${TF_VAR_DEPLOY_INTO_ACCOUNT_ID}:role/S3BackendRole"
+    - terraform init -backend-config="bucket=${STAGING_TERRAFORM_S3_BUCKET}"
+      -backend-config="region=${TF_VAR_AWS_REGION}" -backend-config="role_arn=arn:aws:iam::${TF_VAR_DEPLOY_INTO_ACCOUNT_ID}:role/S3BackendRole"
       -backend-config="external_id=${TF_VAR_ASSUME_ROLE_EXTERNAL_ID}"
       -backend-config="session_name=TerraformBackend" terraform-configuration
     - terraform apply -auto-approve -input=false terraform-configuration
+  environment:
+    name: staging
+    url: https://staging.example.com
+    on_stop: stop_staging
+  only:
+    variables:
+      - $DEPLOY_TO == "staging"
+
+stop_staging:
+  stage: deploy
+  tags:
+    - terraform
+  variables:
+    TF_VAR_DEPLOY_INTO_ACCOUNT_ID: ${STAGING_ACCOUNT_ID}
+    TF_VAR_ASSUME_ROLE_EXTERNAL_ID: ${STAGING_ASSUME_ROLE_EXTERNAL_ID}
+    TF_VAR_AWS_REGION: ${STAGING_AWS_REGION}
+  script:
+    - terraform init -backend-config="bucket=${STAGING_TERRAFORM_S3_BUCKET}"
+      -backend-config="region=${TF_VAR_AWS_REGION}" -backend-config="role_arn=arn:aws:iam::${TF_VAR_DEPLOY_INTO_ACCOUNT_ID}:role/S3BackendRole"
+      -backend-config="external_id=${TF_VAR_ASSUME_ROLE_EXTERNAL_ID}"
+      -backend-config="session_name=TerraformBackend" terraform-configuration
+    - terraform destroy -input=false -auto-approve terraform-configuration
+  when: manual
+  environment:
+    name: staging
+    action: stop
+  only:
+    variables:
+      - $DEPLOY_TO == "staging"
 ```
 
-Here we declare a "deploy" stage. You'll probably add other stages, such as "build" and "test", but we only need one stage for merely deploying the infrastructure.
+We start by declaring the "cache" section in order to cache the terraform plugins,
+so they only need to be installed for the first job execution.
 
-The "cache" section is being used to keep files (such as downloaded plugins) around between job executions.
+Next, we declare a "plan" and "deploy" stage. These are the stages that jobs
+can belong to, listed in the order that they will execute. The names "plan"
+and "deploy" are arbitrary labels. Each job will declare the name of the
+stage that it executes within.
 
-The job called "deploy_staging" will be used for deploying to the staging environment. The "terraform" tag is used to specify that we want to use
-the "Shell Runner" (and not our "Docker Runner") so that the Terraform binary will be available. Note: Our other option would be to use a Docker image
+Next, we declare the first job, which is arbitrarily called "deploy_staging".
+This job will execute within the "deploy" stage, but will only execute
+when there exists a variable called "DEPLOY_TO" which has the value "staging".
+When it executes, it will create/update an environment (that's also called "staging"),
+and will run both a "terraform init" and "terraform apply" command. The
+assignment of variables that begin with "TF_VAR_" is so that they'll be
+made available to the Terraform configuration files, as [documented here](https://www.terraform.io/docs/configuration/variables.html#environment-variables).
+The environment is associated with the "stop_staging" job, so that when the environment
+is stopped, it will execute "terraform destroy" (in order to clean up).
+The "terraform" tag is used to specify that we want to use
+the "Shell Runner" (and not our "Docker Runner") so that the Terraform
+binary will be available. Note: Our other option would be to use a Docker image
 that contains the Terraform binary.
 
-The script runs the "terraform init" command to make sure the plugins are downloaded and the S3 Backend configured.
-It then runs "terraform apply" to actually perform the updates, meaning it will create/update any resources that are
-not in sync relative to the current state (in the S3 bucket). Both commands specify "terraform-configuration" as
+The "terraform init" command makes sure the plugins are downloaded and the S3 Backend is configured.
+The "terraform apply" command actually performs create/update of any resources that are
+not in sync relative to the current state (based on data in the S3 bucket). Both commands specify "terraform-configuration" as
 the directory, so we'll need to create that subdirectory and use it for the "main.tf" file.  Refer to these files
 in my github project and set them up similarly in yours.
 
-Take a look at [terraform-configuration/main.tf](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/terraform-configuration/main.tf).
-You'll see a few variables, the configuration of the AWS provider and S3 backend, and lastly the EC2 instance.
-The variables seen here, and those seen in the ".gitlab-ci.yaml" file, can be
-specified in various ways (refer to [Priority of Variables](https://docs.gitlab.com/ee/ci/variables/)), but I usually specify them in project settings ("Settings --> CI/CD --> Variables"):
+Also in the ".gitlab-ci.yml" file are the jobs for deployment to "Production". However,
+let's move on to the "main.tf" file before looking at how the production
+deployment jobs work.
+
+## Terraform Configuration
+
+Create the "terraform-configuration" directory and place a copy of
+"[main.tf](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/terraform-configuration/main.tf)" into it.
+
+
+
+Take a look at main.tf:
+
+```
+variable "DEPLOY_INTO_ACCOUNT_ID" {
+    type = "string"
+}
+
+variable "ASSUME_ROLE_EXTERNAL_ID" {
+    type = "string"
+}
+
+variable "AWS_REGION" {
+    type = "string"
+}
+
+variable "region-ami-map" {
+    type = "map"
+    default = {
+        "us-east-1" = "ami-cd0f5cb6"
+        "us-east-2" = "ami-10547475"
+        "us-west-1" = "ami-09d2fb69"
+        "us-west-2" = "ami-6e1a0117"
+        "ca-central-1" = "ami-9818a7fc"
+        "eu-central-1" = "ami-1e339e71"
+        "eu-west-1" = "ami-785db401"
+        "eu-west-2" = "ami-996372fd"
+        "ap-southeast-1" = "ami-6f198a0c"
+        "ap-southeast-2" = "ami-e2021d81"
+        "ap-northeast-1" = "ami-ea4eae8c"
+        "ap-northeast-2" = "ami-d28a53bc"
+        "ap-south-1" = "ami-099fe766"
+        "sa-east-1" = "ami-10186f7c"
+    }
+}
+
+provider "aws" {
+  region     = "${var.AWS_REGION}"
+  version    = "~> 1.26"
+  assume_role {
+    role_arn     = "arn:aws:iam::${var.DEPLOY_INTO_ACCOUNT_ID}:role/TerraformRole"
+    session_name = "Terraform"
+    external_id  = "${var.ASSUME_ROLE_EXTERNAL_ID}"
+  }
+}
+
+terraform {
+  backend "s3" {
+    # Partial configuration is used since variables are not allowed here.
+    key    = "terraform-state"
+  }
+}
+
+resource "aws_instance" "ec2instance" {
+  ami = "${lookup(var.region-ami-map, var.AWS_REGION)}"
+  instance_type = "t2.micro"
+}
+```
+
+Here we have declarations for the following:
+* variables (including an AMI map, used for the EC2 instance)
+* AWS provider configuration
+* S3 backend configuration
+* Lastly, the EC2 instance
+
+The variables found in "main.tf" were initialized in ".gitlab-ci.yaml",
+using a set of variables that begin with either "STAGING_" or "PROODUCTION_".
+They'll need to be specified somewhere. Refer to [Priority of Variables](https://docs.gitlab.com/ee/ci/variables/)
+for a list of places where GitLab variables can be specified.  I usually
+specify them in project settings ("Settings --> CI/CD --> Variables"),
+as depicted below:
 ![GitLab Variables](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/gitlab-variables.png)
 
 Before your pipeline will work successfully, you'll need to configure the variables as depicted, using the values:
-* TF_VAR_DEPLOY_INTO_ACCOUNT_ID - The ID of the AWS Account to deploy resources into.
-* TERRAFORM_S3_BUCKET - The name of the S3 bucket
-* TF_VAR_ASSUME_ROLE_EXTERNAL_ID - The External ID that you used
-* TF_VAR_AWS_REGION - The name of the AWS region (e.g., us-west-2)
+* STAGING_ACCOUNT_ID - The ID of the AWS Account to deploy resources into.
+* STAGING_TERRAFORM_S3_BUCKET - The name of the S3 bucket
+* STAGING_ASSUME_ROLE_EXTERNAL_ID - The External ID that you used for Assume Role.
+* STAGING_AWS_REGION - The name of the AWS region (e.g., us-west-2)
 
-Notice that some variables begin with the prefix "TF_VAR_", whereas others do not.  Those that begin with "TF_VAR_" will
-be exposed during evaluation of the terraform configuration files, as [documented here](https://www.terraform.io/docs/configuration/variables.html#environment-variables).
-The variables that are only used in .gitlab-ci.yaml (such as those for the S3 Backend configuration) do not need to begin with "TF_VAR_".
-
-The AWS provider needs to be configured with the Role ARN of what was called "TerraformRole" in the S3 Backend stack,
-whereas the S3 Backend (configured via arguments to the "terraform init" command) needs to be given the Role ARN
-of what was called "S3BackendRole".
+The AWS provider needs to be configured with the Role ARN of what was called "TerraformRole" in the S3 Backend stack
+so that it will create resources in the desired account.  On the other hand, the configuration
+of S3 Backend (configured via arguments to the "terraform init" command) is configured using the Role ARN
+of what was called "S3BackendRole" so that it can access the proper S3 bucket
+and DynamoDB lock table.
 
 The EC2 instance (at the end of main.tf) is just an example of what you might deploy
 for your project. In a real project, however, you'll probably have more than just this
@@ -370,7 +499,109 @@ provider and backend configuration.  For example, you might have three files: va
 Ultimately your structure of Terraform configuration files will depend on your project. If it's a
 large project, you could leverage [Terraform Modules](https://www.terraform.io/docs/modules/index.html).
 
-
-
 ## Run the Pipeline
+
+At this point, you're all set to run the pipeline for Staging Deployment.
+Because the job only runs when there's a DEPLOY_TO variable that equals
+"staging", you can specify this when creating the pipeline:
+
+![Create Pipeline](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/create_pipeline.png)
+
+![Create Pipeline Step 2](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/create_pipeline2.png)
+
+If you want the deployment to happen automatically whenever code is
+comitted, you can set the DEPLOY_TO variable at the project level ("Settings --> CI/CD --> Variables").
+
+You could also run the deployment [on a schedule](https://gitlab.com/help/user/project/pipelines/schedules)
+or [create a trigger](https://gitlab.com/help/ci/triggers/README) that
+will allow you to run it programmatically.
+
+## Create the GitLab Configuration for Production Deployment
+
+Add the production deployment jobs to your ".gitlab-ci.yml" file, if they're not already there:
+
+```
+plan_production:
+  stage: plan
+  tags:
+    - terraform
+  variables:
+    TF_VAR_DEPLOY_INTO_ACCOUNT_ID: ${PRODUCTION_ACCOUNT_ID}
+    TF_VAR_ASSUME_ROLE_EXTERNAL_ID: ${PRODUCTION_ASSUME_ROLE_EXTERNAL_ID}
+    TF_VAR_AWS_REGION: ${PRODUCTION_AWS_REGION}
+  artifacts:
+    paths:
+    - production_plan.txt
+    - production_plan.bin
+    expire_in: 1 week
+  script:
+    - terraform init -backend-config="bucket=${PRODUCTION_TERRAFORM_S3_BUCKET}"
+      -backend-config="region=${TF_VAR_AWS_REGION}" -backend-config="role_arn=arn:aws:iam::${TF_VAR_DEPLOY_INTO_ACCOUNT_ID}:role/S3BackendRole"
+      -backend-config="external_id=${TF_VAR_ASSUME_ROLE_EXTERNAL_ID}"
+      -backend-config="session_name=TerraformBackend" terraform-configuration
+    - terraform plan -input=false -out=production_plan.bin terraform-configuration
+    - terraform plan -no-color production_plan.bin > production_plan.txt
+  only:
+    variables:
+      - $DEPLOY_TO == "production"
+
+deploy_production:
+  stage: deploy
+  when: manual
+  tags:
+    - terraform
+  variables:
+    TF_VAR_DEPLOY_INTO_ACCOUNT_ID: ${PRODUCTION_ACCOUNT_ID}
+    TF_VAR_ASSUME_ROLE_EXTERNAL_ID: ${PRODUCTION_ASSUME_ROLE_EXTERNAL_ID}
+    TF_VAR_AWS_REGION: ${PRODUCTION_AWS_REGION}
+  script:
+    - terraform init -backend-config="bucket=${PRODUCTION_TERRAFORM_S3_BUCKET}"
+      -backend-config="region=${TF_VAR_AWS_REGION}" -backend-config="role_arn=arn:aws:iam::${TF_VAR_DEPLOY_INTO_ACCOUNT_ID}:role/S3BackendRole"
+      -backend-config="external_id=${TF_VAR_ASSUME_ROLE_EXTERNAL_ID}"
+      -backend-config="session_name=TerraformBackend" terraform-configuration
+    - terraform apply -auto-approve -input=false production_plan.bin
+  environment:
+    name: production
+    url: https://production.example.com
+    on_stop: stop_production
+  only:
+    variables:
+      - $DEPLOY_TO == "production"
+
+stop_production:
+  stage: deploy
+  tags:
+    - terraform
+  variables:
+    TF_VAR_DEPLOY_INTO_ACCOUNT_ID: ${PRODUCTION_ACCOUNT_ID}
+    TF_VAR_ASSUME_ROLE_EXTERNAL_ID: ${PRODUCTION_ASSUME_ROLE_EXTERNAL_ID}
+    TF_VAR_AWS_REGION: ${PRODUCTION_AWS_REGION}
+  script:
+    - terraform init -backend-config="bucket=${PRODUCTION_TERRAFORM_S3_BUCKET}"
+      -backend-config="region=${TF_VAR_AWS_REGION}" -backend-config="role_arn=arn:aws:iam::${TF_VAR_DEPLOY_INTO_ACCOUNT_ID}:role/S3BackendRole"
+      -backend-config="external_id=${TF_VAR_ASSUME_ROLE_EXTERNAL_ID}"
+      -backend-config="session_name=TerraformBackend" terraform-configuration
+    - terraform destroy -input=false -auto-approve terraform-configuration
+  when: manual
+  environment:
+    name: production
+    action: stop
+  only:
+    variables:
+      - $DEPLOY_TO == "production"
+
+```
+
+These jobs are similar to those of the "Staging" deployment, except that
+there's an extra job because we've set up a manual review step. The
+"plan_production" runs in the "plan" stage (prior to the "deploy" stage)
+in order to create an artifact called production_plan.bin (and production_plan.txt).
+The "deploy_production" job only runs when manually triggered, and it
+runs "terraform apply" using the "production_plan.bin" file--so it applies
+the plan. In this way, an operator can view production_plan.txt in order
+to review a detailed description of all the changes that will be performed
+prior to them being applied (i.e., prior to manual initiation of "deploy_production").
+This is a simple example implementation of an approval workflow that
+leverages GitLab's "artifacts" feature and Terraform's "plan" feature.
+
 

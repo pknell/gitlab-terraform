@@ -80,7 +80,7 @@ Log-in to the AWS console using your DevOps account, and navigate into CloudForm
 
 Click "Create Stack".
 
-Specify the template by uploading the gitlab-runner.template file:
+Specify the template by uploading the [gitlab-runner.template](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/gitlab-runner.template) file. All the files you will need are located [here](https://github.com/pknell/gitlab-terraform).
 
 ![Upload Template to S3](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/upload-template.png)
 

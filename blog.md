@@ -93,7 +93,7 @@ Click "Next", and then enter each missing parameter:
 
 Click "Next" twice (to use the default options). Then, click the checkbox to allow IAM resource creation, and click "Create".
 
-Wait a few minutes for the stack creation to complete. You can now view the EC2 instance of the GitLab Runner in the console:
+Wait a few minutes for the stack creation to complete. You can now view the EC2 instance of the GitLab Runner in the console (under Services --> EC2 --> Running Instances):
 
 ![GitLab Runner Instance](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/runner-ec2-instance.png)
 

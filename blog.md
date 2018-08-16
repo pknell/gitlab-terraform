@@ -236,7 +236,7 @@ by:
         1. Select your KMS keypair
         1. Copy the encrypted token for use later to update the stack
         1. Click the "Code" button to get a JavaScript snippet
-    1. Use the code snippet to tweak the Lambda function to decrypt the encrypted token prior to use
+    1. Use the code snippet to tweak the Lambda function's code (in gitlab-runner.template) to decrypt the encrypted token prior to use
     1. Disable the "helpers"
     1. Set up IAM permissions so that only the Lambda function has permission to use the key for decryption
     1. Update the stack (again) to use the encrypted token

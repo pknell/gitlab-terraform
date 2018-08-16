@@ -116,7 +116,7 @@ Let's take a look at what's in the stack:
 
 At the left of the above diagram, we have RunnerIamRole & RunnerInstanceProfile. These are
 for giving the EC2 instance (that runs the GitLab Runner) permission to
-assume the roles of the other accounts. The CloudFormation template for RunnerIamRole & RunnerInstanceProfile follows:
+assume the roles of the other accounts. The CloudFormation template for RunnerIamRole & RunnerInstanceProfile looks like:
 
 ```
   RunnerIamRole:
@@ -157,9 +157,9 @@ The "AssumeRolePolicyDocument" (part of RunnerIamRole) allows the EC2 service to
 It's limited to assuming only "TerraformRole" and "S3BackendRole" (which are roles defined in "[s3-backend.template](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/s3-backend.template)") to avoid giving the instance too much access (e.g., it cannot assume the administrative roles of the DevOps account).
 
 After the IAM resources (RunnerIamRole & RunnerInstanceProfile), there's the
-resources for starting the EC2 instance for the GitLab Runner: RunnerAutoScalingGroup
+resources for starting the EC2 instance: RunnerAutoScalingGroup
 & RunnerLaunchConfiguration.  For these, the template code is a bit long, so
- you'll want to review it [directly in the file](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/gitlab-runner.template).
+ you should review it [directly in the file](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/gitlab-runner.template).
 Of particular importance are the commands labeled as "1-Register-Docker-Runner" and "2-Register-Shell-Runner".
 These commands each register a runner, associated with the specific GitLab project.
 Why two? Technically you only need one of them, so you can decide which you'd like to keep
@@ -170,17 +170,19 @@ installed tools. If you look at the "UserData" section of the "RunnerLaunchConfi
 you'll see that we've installed docker, awscli, and terraform. This means that
 your GitLab Pipeline Jobs can use any of these when they use the shell executor.
 With the docker executor, you'd need an image that contains the tools. It's easy to create
-such an image, and it's a good idea, but it's an extra step. For this tutorial,
+such an image, and it's a good idea, but it's an extra step. For now,
 we'll use the Shell Executor.  We'll have to make sure our job (in the .gitlab-ci.yaml file)
 specifies a tag, either "terraform" or "awscli", in order for the runner to know
 to use the shell runner--otherwise it'll use docker. This is because the shell
 runner has the argument "--tag-list terraform,awscli" whereas the docker runner does not.
 
-After the RunnerAutoScalingGroup & RunnerLaunchConfiguration, the "gitlab-runner.template"
-continues with AutoScaling scheduled actions that will remove it at night and
-re-create it in the morning. You can adjust the cron expressions if you prefer a
-different schedule, or remove these altogether (if you want the instance to run 24x7).
-Here's the code for these:
+You may also have noticed that the "NotificationConfigurations" property uses a condition called "HasGitLabApiToken". Had you specified the GitLap API token in the CF stack parameters, it would include event notifications to the topic "RunnerLifecycleTopic". We'll get to this later in this article.
+
+After the RunnerAutoScalingGroup & RunnerLaunchConfiguration, the template continues
+with AutoScaling scheduled actions that will remove it at night and re-create it in 
+the morning (see the code snippet below). You can adjust the cron expressions if you prefer a schedule different
+than weekdays 9 AM to 5 PM CDT, or you can altogether remove these scheduled actions if you prefer to run 24x7.
+
 ```
   ScaleDownAtNight:
     Type: 'AWS::AutoScaling::ScheduledAction'
@@ -217,23 +219,31 @@ is a component of the clean-up mechanism that will unregister the Runner
 by:
 1. Log-in to GitLab, and create an API Token (User Settings --> Access Tokens), as depicted below:
 ![CloudFormation S3 Backend](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/create-api-token.png)
-1. Optional security feature:
+
+1. Update the CloudFormation stack, without changing the template, but just change the value of the GitLabApiToken parameter:
+![Update Stack with GitLab API token](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/update_runner_stack.png)
+
+1. At the end of the wizard, before you click "Update", it should show the following preview of changes:
+![Update Stack Preview Changes](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/update_runner_stack_preview.png)
+
+1. You can also choose to use [KMS](https://aws.amazon.com/kms/) to improve security by encrypting the GitLab API token:
+    1. Be aware this will cost $1 per month for the KMS keypair (current price as of time this article was written).
     1. Use [KMS](https://aws.amazon.com/kms/) to create a customer-managed keypair
-    1. Encrypt the GitLab API Access Token with it
-    1. Tweak the Lambda function to decrypt it prior to use
-    * Please keep in mind that the KMS keypair is not free. At the time of writing this article, it
-    costs $1 per month. Encrypting this token is important because GitLab does not currently have
-    any way to limit the scope of access, and anyone who has access to the Lambda function will
-    be able to get the token. When the token is KMS-encrypted, you can separately manage access
-    to view the Lambda function versus access to decrypt the token.
-    * The following screenshot (from the Lambda AWS Console) shows the helper for setting up KMS.
-    After creating the stack, you can navigate to the Lambda function, enable the "helpers" and then
-    click the "Code" button. It will give you JavaScript code for decrypting, which you can use for
-    tweaking the Lambda function. You can then disable the helpers, and the IAM permissions so
-    that only the Lambda function can decrypt with the key (and not the AWS Console user):
-    ![KMS for Lambda Environment Variables](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/kms-helper-for-lambda.png)
-    * You can find [the documentation here under "Environment Variable Encryption"](https://docs.aws.amazon.com/lambda/latest/dg/env_variables.html).
-1. Update the CloudFormation stack, without changing the template, but just change the value of the GitLabApiToken parameter.
+    1. Encrypt the GitLab API Access Token with it. An easy way to do this is to use the AWS Lambda Console's helper function:
+        1. Navigate to the Lambda function
+        1. Select the checkbox to enable the "helpers" (see screenshot below)
+        1. You can find the [documentation here under "Environment Variable Encryption"](https://docs.aws.amazon.com/lambda/latest/dg/env_variables.html).
+        1. Select your KMS keypair
+        1. Copy the encrypted token for use later to update the stack
+        1. Click the "Code" button to get a JavaScript snippet
+    1. Use the code snippet to tweak the Lambda function to decrypt the encrypted token prior to use
+    1. Disable the "helpers"
+    1. Set up IAM permissions so that only the Lambda function has permission to use the key for decryption
+    1. Update the stack (again) to use the encrypted token
+    
+The reason for choosing to encrypt the GitLab API token is that anyone with access to the Lambda function will have access to the token, whereas if you encrypt it then they would also need decrypt permission (which can be limited per key).
+
+![KMS for Lambda Environment Variables](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/kms-helper-for-lambda.png)
 
 The presence of GitLabApiToken will cause the stack to look at follows (notice the entire lower section of this diagram is for support of unregistering the runner):
 
@@ -248,9 +258,9 @@ it's important that the runner-registration commands (see the RunnerLaunchConfig
 
 You might be wondering why I used the GitLab API to remove the runner, rather than execute
 a "gitlab-runner unregister" command--it's because I found that this command doesn't entirely
-remove the registration on the GitLab server (they still remain in the list of runners, albeit inactive),
-and it seems more reliable to use a lifecycle notification than a shutdown script
-within the instance. However, I believe it could be done either way, each with pros/cons.
+remove the registration on the GitLab server (they still remain in the list of runners, albeit inactive).
+Also, it seems more reliable to use a lifecycle notification than a shutdown script
+within the instance because the instance might terminate suddenly. Nonetheless, I believe it could be done either way, each with pros/cons.
 
 ## Deploy the S3 Backend
 

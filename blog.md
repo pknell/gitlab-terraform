@@ -114,17 +114,15 @@ Let's take a look at what's in the stack:
 
 ![CloudFormation S3 Backend](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/cf-gitlab-runner.png)
 
-At the left of this diagram (above), we have an RunnerIamRole & RunnerInstanceProfile. These are
+At the left of the above diagram, we have RunnerIamRole & RunnerInstanceProfile. These are
 for giving the EC2 instance (that runs the GitLab Runner) permission to
-assume the roles of the other accounts. The "AssumeRolePolicyDocument" allows the EC2 service to use the RunnerIamRole when it starts instances, and the "GitLabRunnerPolicy" allows the instance to assume the roles of the other accounts (i.e., "Staging" and "Production").
-It's limited to assuming only "TerraformRole" and "S3BackendRole" (which are roles defined in "s3-backend.template") to avoid giving the instance too much access (e.g., it cannot assume the administrative roles of the DevOps account).
-The CF template code for these is
-as follows:
+assume the roles of the other accounts. The CloudFormation template for RunnerIamRole & RunnerInstanceProfile follows:
 
 ```
   RunnerIamRole:
     Type: 'AWS::IAM::Role'
     Properties:
+      RoleName: GitlabRunnerRole
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -154,6 +152,9 @@ as follows:
       Roles:
         - !Ref RunnerIamRole
 ```
+
+The "AssumeRolePolicyDocument" (part of RunnerIamRole) allows the EC2 service to use RunnerIamRole when it starts instances, and the "GitLabRunnerPolicy" allows the instance to assume the roles of the other accounts (i.e., "Staging" and "Production").
+It's limited to assuming only "TerraformRole" and "S3BackendRole" (which are roles defined in "[s3-backend.template](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/s3-backend.template)") to avoid giving the instance too much access (e.g., it cannot assume the administrative roles of the DevOps account).
 
 After the IAM resources (RunnerIamRole & RunnerInstanceProfile), there's the
 resources for starting the EC2 instance for the GitLab Runner: RunnerAutoScalingGroup

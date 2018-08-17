@@ -628,4 +628,23 @@ prior to them being applied (i.e., prior to manual initiation of "deploy_product
 This is a simple example implementation of an approval workflow that
 leverages GitLab's "artifacts" feature and Terraform's "plan" feature.
 
+When you create a pipeline with the "DEPLOY_TO" variable set to "production", the
+"plan_production" job will run. It will create an artifact that you can download to
+review the changes. The "deploy_production" job can then be initiated to apply
+the plan. The controls doing this are depicted below.
 
+![Download artifact and initiate deploy](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/download-artifact-and-deploy.png)
+
+## Conclusion
+
+When you're done, remember to stop your environments (so you 
+do not incur costs by leaving EC2 instances running), and delete your CloudFormation 
+Stacks unless you intend to continue using them.
+
+Congratulations! You've made it to the end of this article! As you can see from the process that you've
+just worked through, there is a lot involved with setting up automated infrastructure
+deployment into multiple AWS accounts using GitLab and Terraform. However, once this is set up for your
+project, you will have a controlled deployment process that will ensure consistency between environments
+and reduce the potential for human error that typically exists in a manual process. Since Terraform's API is so
+complete, you can configure your entire AWS environment with ".tf" files that are checked-in with your
+source code, and managing deployments into several environments becomes trivial.

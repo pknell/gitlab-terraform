@@ -264,7 +264,9 @@ within the instance because the instance might terminate suddenly. Nonetheless, 
 
 ## Deploy the S3 Backend
 
-In another account, go to the CloudFormation console and create a stack from the s3-backend.template file.
+In another account, go to the CloudFormation console and create a stack
+from the [s3-backend.template](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/s3-backend.template)
+file.
 
 Click "Next", and then enter the missing parameter values:
 * Stack name: the name of the stack, such as "Terraform-Backend"
@@ -485,30 +487,29 @@ Here we have declarations for the following:
 
 The variables found in "main.tf" were initialized in ".gitlab-ci.yaml",
 using a set of variables that begin with either "STAGING_" or "PROODUCTION_".
-They'll need to be specified somewhere. Refer to [Priority of Variables](https://docs.gitlab.com/ee/ci/variables/)
+These "STAGING_" and "PRODUCTION_" variables will need to be specified.
+There are many options for doing this. Refer to [Priority of Variables](https://docs.gitlab.com/ee/ci/variables/)
 for a list of places where GitLab variables can be specified.  I usually
 specify them in project settings ("Settings --> CI/CD --> Variables"),
 as depicted below:
 ![GitLab Variables](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/gitlab-variables.png)
 
-Before your pipeline will work successfully, you'll need to configure the variables as depicted, using the values:
-* STAGING_ACCOUNT_ID - The ID of the AWS Account to deploy resources into.
-* STAGING_TERRAFORM_S3_BUCKET - The name of the S3 bucket
+Before your Staging pipeline will work successfully, you'll need to configure the variables as depicted, using the values:
+* STAGING_ACCOUNT_ID - The ID of the AWS Account to deploy resources into. Refer to the Outputs of your s3-backend stack.
+* STAGING_TERRAFORM_S3_BUCKET - The name of the S3 bucket. Refer to the Outputs of your s3-backend stack.
 * STAGING_ASSUME_ROLE_EXTERNAL_ID - The External ID that you used for Assume Role.
-* STAGING_AWS_REGION - The name of the AWS region (e.g., us-west-2)
+* STAGING_AWS_REGION - The name of the AWS region (e.g., us-west-2). Refer to the Outputs of your s3-backend stack.
 
-The AWS provider needs to be configured with the Role ARN of what was called "TerraformRole" in the S3 Backend stack
-so that it will create resources in the desired account.  On the other hand, the configuration
-of S3 Backend (configured via arguments to the "terraform init" command) is configured using the Role ARN
-of what was called "S3BackendRole" so that it can access the proper S3 bucket
-and DynamoDB lock table.
+With these variables defined, the AWS provider (configured in main.tf) will be able to assume the TerraformRole
+so that it can create resources in the staging account. Also, the S3 Backend (configured via arguments to the "terraform init" command)
+will be able to assume the S3BackendRole, so that it can access the S3 bucket and the DynamoDB Lock table.
 
 The EC2 instance (at the end of main.tf) is just an example of what you might deploy
 for your project. In a real project, however, you'll probably have more than just this
 single resource--so you should separate it into it's own file, separate from the
 provider and backend configuration.  For example, you might have three files: vars.tf, provider.tf, and app.tf.
 Ultimately your structure of Terraform configuration files will depend on your project. If it's a
-large project, you could leverage [Terraform Modules](https://www.terraform.io/docs/modules/index.html).
+large project, you could use [Terraform Modules](https://www.terraform.io/docs/modules/index.html).
 
 ## Run the Pipeline
 
@@ -520,12 +521,24 @@ Because the job only runs when there's a DEPLOY_TO variable that equals
 
 ![Create Pipeline Step 2](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/create_pipeline2.png)
 
+After your pipeline runs successfully, you should be able to see the EC2 instance that was deployed in the EC2 console
+(you might need to log-in with a user that has EC2 permissions):
+
+![Deployed EC2 Instance](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/deployed_ec2_instance.png)
+
 If you want the deployment to happen automatically whenever code is
 comitted, you can set the DEPLOY_TO variable at the project level ("Settings --> CI/CD --> Variables").
 
 You could also run the deployment [on a schedule](https://gitlab.com/help/user/project/pipelines/schedules)
 or [create a trigger](https://gitlab.com/help/ci/triggers/README) that
 will allow you to run it programmatically.
+
+You can remove the EC2 instance (actually clean-up everything that Terraform has created in Staging) by stopping the environment:
+
+![Stop Staging Environment](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/stop_environment.png)
+
+This will remove the environment (from the "Operations" --> "Environments" view within GitLab),
+and also initiates the "stop_staging" CI/CD pipeline job, which will run "terraform destroy" to clean-up the AWS resources (e.g., the EC2 instance).
 
 ## Create the GitLab Configuration for Production Deployment
 

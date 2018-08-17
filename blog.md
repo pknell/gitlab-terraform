@@ -631,7 +631,7 @@ leverages GitLab's "artifacts" feature and Terraform's "plan" feature.
 When you create a pipeline with the "DEPLOY_TO" variable set to "production", the
 "plan_production" job will run. It will create an artifact that you can download to
 review the changes. The "deploy_production" job can then be initiated to apply
-the plan. The controls doing this are depicted below.
+the plan. The controls for doing this are depicted below.
 
 ![Download artifact and initiate deploy](https://raw.githubusercontent.com/pknell/gitlab-terraform/master/blog-images/download-artifact-and-deploy.png)
 

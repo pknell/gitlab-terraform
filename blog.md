@@ -1,15 +1,23 @@
-# Terraform Deployment with GitLab & AWS
+# Terraform Automation with GitLab & AWS
 *© 2018 Paul Knell, NVISIA LLC*
 
-[Terraform](https://www.terraform.io) is a useful tool for scripting the deployment of resources into
-Amazon's Cloud (AWS).  When you start using Terraform, you typically begin at the local command
-line--by writing configuration files and then running them with "terraform apply"
+[Terraform](https://www.terraform.io) is a tool that allows you to provision cloud resources (e.g., server instances, auto-scaling groups, networks, roles/permissions, etc.) by declaring them in configuration files.  These files can then be versioned, reviewed, and executed to update your various deployment environments (e.g., UAT, Staging, Production).  There is an open-source version that is free to use, and also an enterprise version that adds features such as delegation of infrastructure management across multiple teams.  This article presents a technique for using the open-source Terraform edition in conjunction with AWS and GitLab’s CI/CD Pipelines—in order to automate the use of Terraform at a very low cost (e.g., GitLab pricing [starts at $0/month](https://about.gitlab.com/pricing/)).  This technique provides a number of benefits over manual configuration of infrastructure:
+* Consistency across environments
+* Easier to promote changes to higher environments with less potential for human error
+* A record (in GitLab Pipelines) of all Terraform executions
+* Version-controlled configuration of cloud resources
+* Potential to utilize other Cloud vendors without tools/process changes (i.e., Terraform supports all major Cloud vendors)
+* Ability to review infrastructure changes before they are applied
+* EC2 Instance Profile on the “GitLab Runner” instance eliminates the need to locally store AWS credentials
+
+Typically, when you start using Terraform, you begin at the local command
+line by writing configuration files and then running them with "terraform apply"
 commands.  It doesn't take long, though, before you realize that just using the local
 backend (the "terraform.tfstate" file) isn't enough for collaborative projects
-where deployment pipelines can run concurrently. Therefore, the [S3 Backend](https://www.terraform.io/docs/backends/types/s3.html)
-should be used. The use of S3 to store the Terraform state is simple when there's
-just one environment, but when you need to support multiple (e.g., test, staging,
-production) there's a bit more to it... you can either:
+where the state needs to be shared and the deployment pipelines can run concurrently. Therefore, the [S3 Backend](https://www.terraform.io/docs/backends/types/s3.html)
+should be used. This backend uses a DynamoDB table as a locking mechanism to serialize concurrent executions. The use of S3 to store the Terraform state is simple when there's
+just one environment, but when you need to support multiple (e.g., UAT, Staging,
+Production) there's a bit more to it... you can either:
 1. Use a single S3 Bucket with different folders for the various environments by using [Terraform's workspace feature](https://www.terraform.io/guides/running-terraform-in-automation.html#multi-environment-deployment).
 1. Or, use a separate S3 Bucket for each environment.
 
@@ -17,8 +25,6 @@ We like to use different AWS accounts for each environment, particularly because
 For this article, we'll use the second approach--each account (i.e., each environment) gets it's own "Terraform State" S3 Bucket.
 
 For the CI/CD server, however, there's only one for all environments--to keep costs down.
-This blog works through the creation of this kind of DevOps architecture (as depicted below),
-and provides a couple CloudFormation templates to help automate the setup.
 
 If you work through this entire article, you'll end up with a working example
 pipeline that deploys an EC2 instance into multiple environments, as
@@ -38,7 +44,7 @@ depends on how you configure the GitLab Pipeline.
 
 ## Getting Started
 
-You're going to need a GitLab account, and at least two AWS accounts (or three if you want to set up both "staging" and "production").
+You're going to need a GitLab account, and at least two AWS accounts (or three if you want to set up both "staging" and "production"). To facilitate some of the set-up of the AWS accounts, this article references a couple CloudFormation templates, but provides explanations around how these templates work.
 
 ### Create New GitLab Project
 
